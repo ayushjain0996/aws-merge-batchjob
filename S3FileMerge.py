@@ -102,16 +102,28 @@ def mergeFunction(inputBucketName, inputObjectKey):
     outputDataframe['output2'] = outputDataframe['output1']
 
     indexListToDrop = []
+    lastIndexMatch = 0
 
     for index1 in outputDataframe.index:
         isPresent = False
-        for index2 in input2Dataframe.index:
+        upperLimit = len(input2Dataframe.index)
+        iterationList2 = range(lastIndexMatch, upperLimit, 1)
+        for index2 in iterationList2:
             condition1 = (outputDataframe['input1'][index1] == input2Dataframe['input1'][index2])
             condition2 = (outputDataframe['input2'][index1] == input2Dataframe['input2'][index2])
-            if (condition1 and condition2):
-                outputDataframe.loc[index1, 'output2'] = input2Dataframe.loc[index2, 'output1'].copy()
-                isPresent = True
+            condition3 = (outputDataframe['input1'][index1] < input2Dataframe['input1'][index2])
+            condition4 = (outputDataframe['input2'][index1] < input2Dataframe['input2'][index2])
+            if (condition1):
+                if(condition2):
+                    outputDataframe.loc[index1, 'output2'] = input2Dataframe.loc[index2, 'output1'].copy()
+                    isPresent = True
+                    lastIndexMatch = index2
+                    break
+                elif(condition4):
+                    break
+            elif(condition3):
                 break
+
 
         if (isPresent == False):
             indexListToDrop.append(index1)
