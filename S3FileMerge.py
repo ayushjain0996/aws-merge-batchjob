@@ -123,7 +123,7 @@ def mergeFunction(inputBucketName, inputObjectKey):
     outputDataframe.to_csv(outputPath, index=False, sep='\t')
     return outputFileName
 
-#Main Functions
+#Main Function
 def batchJob():
     # Prints details of Objects uploaded
     inputBucketName = sys.argv[1]
