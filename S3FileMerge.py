@@ -18,13 +18,13 @@ def getSecondFolder(inputKey):
 
 #Function to retrieve latest uploaded file in Bucket
 #Function to retrieve latest uploaded file for Merge in within same bucket
-def getLastUploadedFile(BucketName, FolderName):
+def getLastUploadedFile(bucketName, folderName):
     s3resource = boto3.resource('s3')
-    inputBucket = s3resource.Bucket(BucketName)
+    inputBucket = s3resource.Bucket(bucketName)
     latestModifiedDate = datetime(1984, 1, 1, 0)
     latestModifedReferenceFile = ""
     for object in inputBucket.objects.all():
-        condition1 = (object.key.find(FolderName) != -1)
+        condition1 = (object.key.find(folderName) != -1)
         condition2 = (datetime.strptime(str(object.last_modified), '%Y-%m-%d %H:%M:%S+00:00') > latestModifiedDate)
         if(condition1 and condition2):
             latestModifiedDate = datetime.strptime(str(object.last_modified), '%Y-%m-%d %H:%M:%S+00:00')
