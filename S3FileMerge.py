@@ -4,7 +4,7 @@ import csv
 import s3fs
 import sys
 from datetime import datetime
-
+from boto3.dynamodb.conditions import Key, Attr
 
 #Self Defined Functions
 
@@ -18,96 +18,129 @@ def getSecondFolder(inputKey):
 
 #Function to retrieve latest uploaded file in Bucket
 #Function to retrieve latest uploaded file for Merge in within same bucket
-def lastUploaded(BucketName, FolderName):
+def getLastUploadedFile(BucketName, FolderName):
     s3resource = boto3.resource('s3')
-    inpBucket = s3resource.Bucket(BucketName)
+    inputBucket = s3resource.Bucket(BucketName)
     latestModifiedDate = datetime(1984, 1, 1, 0)
     latestModifedReferenceFile = ""
-    for obj in inpBucket.objects.all():
-        Condition1 = (obj.key.find(FolderName) != -1)
-        Condition2 = (datetime.strptime(str(obj.last_modified), '%Y-%m-%d %H:%M:%S+00:00') > latestModifiedDate)
-        if(Condition1 and Condition2):
-            latestModifiedDate = datetime.strptime(str(obj.last_modified), '%Y-%m-%d %H:%M:%S+00:00')
-            latestModifedReferenceFile = str(obj.key)
+    for object in inputBucket.objects.all():
+        condition1 = (object.key.find(FolderName) != -1)
+        condition2 = (datetime.strptime(str(object.last_modified), '%Y-%m-%d %H:%M:%S+00:00') > latestModifiedDate)
+        if(condition1 and condition2):
+            latestModifiedDate = datetime.strptime(str(object.last_modified), '%Y-%m-%d %H:%M:%S+00:00')
+            latestModifedReferenceFile = str(object.key)
     return latestModifedReferenceFile
 
+#Function to update the status of object in DDB Table
+def changePreviousObjectStatus(tableName):
+    session = boto3.session.Session(region_name='us-west-2')
+    ddbResource = session.resource('dynamodb')
+    # DDB Table Declration
+    table = ddbResource.Table(tableName)
+    tableResponse = table.query(
+        KeyConditionExpression=Key('FolderName').eq('yusjain/output'),
+        FilterExpression=Attr('ObjectStatus').eq('Active'),
+        ProjectionExpression='FileName'
+    )
+    previousActiveObject = tableResponse['Items']
+    if previousActiveObject:
+        previousActiveObjectKey = previousActiveObject[0]
+        print("Changing status of the following file:")
+        print(previousActiveObjectKey['FileName'])
 
-#Prints details of Objects uploaded
-inputBucket = sys.argv[1]
-inputObjectKey = sys.argv[2]
-
-
-print("Bucket Name:",inputBucket)
-print("Key Value:",inputObjectKey)
-
-
-#Reference File location
-referenceFolder = getSecondFolder(inputObjectKey)
-print("Taking latest file from", referenceFolder, "as reference.")
-
-
-latestReferenceFile = lastUploaded(inputBucket, referenceFolder)
-print("Reference File Key: ", latestReferenceFile)
-
-pathInput1 = 's3://' + inputBucket + '/' + inputObjectKey
-pathInput2 = 's3://' + inputBucket +'/' + latestReferenceFile
-
-currDate = datetime.now();
-print(currDate.strftime('%d/%m/%Y'))
-pathOutput = 's3://kesharia/yusjain/output' + currDate.strftime('%m%d%Y%H%M%S') + '.csv'
-
-
-#Read File1
-dfo = pd.read_csv(pathInput1, delimiter = '\t')
-
-#Read File2
-dfi2 = pd.read_csv(pathInput2, delimiter = '\t')
-
-#Output DataFrame
-dfo['output2'] = dfo['output1']
-
-for ind1 in dfo.index:
-    for ind2 in dfi2.index:
-        Condition1 = (dfo['input1'][ind1]==dfi2['input1'][ind2])
-        Condition2 = (dfo['input2'][ind1] == dfi2['input2'][ind2])
-        if(Condition1 and Condition2):
-            dfo.loc[ind1, 'output2'] = dfi2.loc[ind2, 'output1'].copy()
-            break
-        else:
-            pass
-
-#Write output in modified file
-dfo.to_csv(pathOutput, index = False, sep='\t')
+        table.update_item(
+            Key={
+                'FolderName': 'yusjain/output',
+                'FileName': previousActiveObjectKey['FileName']
+            },
+            UpdateExpression='SET ObjectStatus = :objectStatus',
+            ExpressionAttributeValues={
+                ':objectStatus': "Inactive"
+            }
+        )
 
 
-#Print contents of files
-print(dfo.head())
+#Function to add the details to the object to the DDB table
+def addOdjectDetails2Table(tableName, FolderName, FileName, BucketName):
+    session = boto3.session.Session(region_name='us-west-2')
+    ddbResource = session.resource('dynamodb')
+    # DDB Table Declration
+    table = ddbResource.Table(tableName)
+    table.put_item(
+        Item={
+            'FolderName': outputFolderName,
+            'FileName': outputFileName,
+            'BucketName': outputBucketName,
+            'ObjectStatus': 'Active'
+        }
+    )
+
+#Function to merge 2 files, one from input1 and one from input2
+def mergeFunction(inputBucketName, inputObjectKey):
+    # Reference File location
+    referenceFolder = getSecondFolder(inputObjectKey)
+    print("Taking latest file from", referenceFolder, "as reference.")
+
+    latestReferenceFile = getLastUploadedFile(inputBucketName, referenceFolder)
+    print("Reference File Key: ", latestReferenceFile)
+
+    inputPath1 = 's3://' + inputBucketName + '/' + inputObjectKey
+    inputPath2 = 's3://' + inputBucketName + '/' + latestReferenceFile
+
+    currentDate = datetime.now();
+    outputFileName = currentDate.strftime('%d%m%Y%H%M%S') + '.csv'
+    outputPath = 's3://kesharia/yusjain/output/' + outputFileName
+
+    # Read File1
+    input1Dataframe = pd.read_csv(inputPath1, delimiter='\t')
+
+    # Read File2
+    input2Dataframe = pd.read_csv(inputPath2, delimiter='\t')
+
+    # Output DataFrame
+    outputDataframe = input1Dataframe
+    outputDataframe['output2'] = outputDataframe['output1']
+
+    indexListToDrop = []
+
+    for index1 in outputDataframe.index:
+        isPresent = False
+        for index2 in input2Dataframe.index:
+            condition1 = (outputDataframe['input1'][index1] == input2Dataframe['input1'][index2])
+            condition2 = (outputDataframe['input2'][index1] == input2Dataframe['input2'][index2])
+            if (condition1 and condition2):
+                outputDataframe.loc[index1, 'output2'] = input2Dataframe.loc[index2, 'output1'].copy()
+                isPresent = True
+                break
+
+        if (isPresent == False):
+            indexListToDrop.append(index1)
+
+    if(referenceFolder == 'input1'):
+        outputDataframe = outputDataframe.drop(indexListToDrop, axis=0)
+
+    # Write output in modified file
+    outputDataframe.to_csv(outputPath, index=False, sep='\t')
+    return outputFileName
+
+#Main Functions
+def batchJob():
+    # Prints details of Objects uploaded
+    inputBucketName = sys.argv[1]
+    inputObjectKey = sys.argv[2]
+
+    print("Bucket Name:", inputBucketName)
+    print("Key Value:", inputObjectKey)
+
+    outputFileName = mergeFunction(inputBucketName, inputObjectKey)
+
+    # DDB update of file written in Output Bucket
+    outputBucketName = 'kesharia'
+    outputFolderName = 'yusjain/output'
+    tableName = 'yusjainJobRecords'
+
+    changePreviousObjectStatus(tableName)
+    addOdjectDetails2Table(tableName, outputFolderName, outputFileName, outputBucketName)
 
 
-#DDB update of file written in Output Bucket
-
-session = boto3.session.Session(region_name= 'us-west-2')
-DDBResource = session.resource('dynamodb')
-S3Client = boto3.client('s3')
-
-#DDB Table Declration
-table = DDBResource.Table('yusjainJobRecords')
-
-outputBucketName = 'kesharia'
-outputFolderName = 'yusjain'
-outputFileKey = lastUploaded(outputBucketName, outputFolderName)
-outputObj = S3Client.get_object(
-    Bucket=outputBucketName,
-    Key=outputFileKey
-)
-
-table.put_item(
-    Item={
-        'Object Key': outputFileKey,
-        'Bucket Name': outputBucketName,
-    }
-)
-print("DDB Table Update Successful")
-
-
-
+batchJob()
