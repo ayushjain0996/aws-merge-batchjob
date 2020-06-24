@@ -61,16 +61,16 @@ def changePreviousObjectStatus(tableName):
 
 
 #Function to add the details to the object to the DDB table
-def addOdjectDetails2Table(tableName, FolderName, FileName, BucketName):
+def addOdjectDetails2Table(tableName, folderName, fileName, bucketName):
     session = boto3.session.Session(region_name='us-west-2')
     ddbResource = session.resource('dynamodb')
     # DDB Table Declration
     table = ddbResource.Table(tableName)
     table.put_item(
         Item={
-            'FolderName': outputFolderName,
-            'FileName': outputFileName,
-            'BucketName': outputBucketName,
+            'FolderName': folderName,
+            'FileName': fileName,
+            'BucketName': bucketName,
             'ObjectStatus': 'Active'
         }
     )
