@@ -32,13 +32,13 @@ def getLastUploadedFile(bucketName, folderName):
     return latestModifedReferenceFile
 
 #Function to update the status of object in DDB Table
-def changePreviousObjectStatus(tableName):
+def changePreviousObjectStatus(tableName, folderName):
     session = boto3.session.Session(region_name='us-west-2')
     ddbResource = session.resource('dynamodb')
     # DDB Table Declration
     table = ddbResource.Table(tableName)
     tableResponse = table.query(
-        KeyConditionExpression=Key('FolderName').eq('yusjain/output'),
+        KeyConditionExpression=Key('FolderName').eq(folderName),
         FilterExpression=Attr('ObjectStatus').eq('Active'),
         ProjectionExpression='FileName'
     )
@@ -151,7 +151,7 @@ def batchJob():
     outputFolderName = 'yusjain/output'
     tableName = 'yusjainJobRecords'
 
-    changePreviousObjectStatus(tableName)
+    changePreviousObjectStatus(tableName, outputFolderName)
     addOdjectDetails2Table(tableName, outputFolderName, outputFileName, outputBucketName)
 
 
